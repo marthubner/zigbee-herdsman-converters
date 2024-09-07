@@ -67,6 +67,7 @@ const {
     lumiBattery,
 } = lumi.modernExtend;
 import {logger} from '../lib/logger';
+import {addCustomClusterManuSpecificLumiCurtain} from '../lib/lumi';
 import {Definition} from '../lib/types';
 
 const NS = 'zhc:lumi';
@@ -2548,6 +2549,7 @@ const definitions: Definition[] = [
                 .withDescription('Performs an automatic calibration process similar to Aqara’s method to set curtain limits.'),
         ],
         extend: [
+            addCustomClusterManuSpecificLumiCurtain(),
             windowCovering({controls: ['lift'], coverInverted: true, configureReporting: true}),
             lumiCurtainSpeed(),
             lumiCurtainManualOpenClose(),

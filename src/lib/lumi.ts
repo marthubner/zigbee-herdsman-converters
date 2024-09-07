@@ -1,9 +1,11 @@
 import {Buffer} from 'node:buffer';
+import {Zcl} from 'zigbee-herdsman';
 
 import fz from '../converters/fromZigbee';
 import * as exposes from './exposes';
 import {logger} from './logger';
 import * as modernExtend from './modernExtend';
+import {deviceAddCustomCluster} from './modernExtend';
 import * as ota from './ota';
 import * as globalStore from './store';
 import {
@@ -1430,6 +1432,29 @@ const manufacturerOptions = {
     lumi: {manufacturerCode: manufacturerCode, disableDefaultResponse: true},
 };
 
+export function addCustomClusterManuSpecificLumiCurtain(): ModernExtend {
+    return deviceAddCustomCluster('manuSpecificLumi', {
+        ID: 0xfcc0,
+        manufacturerCode: Zcl.ManufacturerCode.LUMI_UNITED_TECHOLOGY_LTD_SHENZHEN,
+        attributes: {
+            curtainManualOpenClose: {ID: 0x0401, type: Zcl.DataType.BOOLEAN},
+            curtainTraverseTime: {ID: 0x0403, type: Zcl.DataType.UINT8},
+            curtainIdentifyBeep: {ID: 0x0404, type: Zcl.DataType.UINT8},
+            curtainLimitsCalibration: {ID: 0x0407, type: Zcl.DataType.UINT8},
+            curtainPosition: {ID: 0x041f, type: Zcl.DataType.UINT8},
+            curtainControl: {ID: 0x0420, type: Zcl.DataType.UINT8},
+            curtainStatus: {ID: 0x0421, type: Zcl.DataType.UINT8},
+            curtainLastManualOperation: {ID: 0x0425, type: Zcl.DataType.UINT8},
+            curtainCalibrationStatus: {ID: 0x0426, type: Zcl.DataType.UINT8},
+            curtainManualStop: {ID: 0x043a, type: Zcl.DataType.BOOLEAN},
+            curtainSpeed: {ID: 0x043b, type: Zcl.DataType.UINT8},
+            curtainAdaptivePullingSpeed: {ID: 0x0442, type: Zcl.DataType.UINT8},
+        },
+        commands: {},
+        commandsResponse: {},
+    });
+}
+
 export const lumiModernExtend = {
     lumiLight: (
         args?: Omit<modernExtend.LightArgs, 'colorTemp'> & {
@@ -1542,7 +1567,7 @@ export const lumiModernExtend = {
         modernExtend.numeric({
             name: 'curtain_speed',
             cluster: 'manuSpecificLumi',
-            attribute: {ID: 0x043b, type: 0x20},
+            attribute: 'curtainSpeed',
             description: 'Speed of curtain movement',
             zigbeeCommandOptions: {manufacturerCode},
             access: 'ALL',
@@ -1558,7 +1583,7 @@ export const lumiModernExtend = {
             valueOn: ['ON', 1],
             valueOff: ['OFF', 0],
             cluster: 'manuSpecificLumi',
-            attribute: 'curtainHandOpen',
+            attribute: 'curtainManualOpenClose',
             description: 'Gently pull to open/close the curtain automatically',
             zigbeeCommandOptions: {manufacturerCode},
             access: 'ALL',
@@ -1571,7 +1596,7 @@ export const lumiModernExtend = {
             valueOn: ['ON', 1],
             valueOff: ['OFF', 0],
             cluster: 'manuSpecificLumi',
-            attribute: {ID: 0x0442, type: 0x20},
+            attribute: 'curtainAdaptivePullingSpeed',
             description: 'The faster/slower the curtain is pulled manually, the faster/slower the curtain will move',
             zigbeeCommandOptions: {manufacturerCode},
             access: 'ALL',
@@ -1584,7 +1609,7 @@ export const lumiModernExtend = {
             valueOn: ['ON', 1],
             valueOff: ['OFF', 0],
             cluster: 'manuSpecificLumi',
-            attribute: {ID: 0x043a, type: 0x10},
+            attribute: 'curtainManualStop',
             description: 'Manually pulling the curtain during operation stops the motor',
             zigbeeCommandOptions: {manufacturerCode},
             access: 'ALL',
@@ -1608,7 +1633,7 @@ export const lumiModernExtend = {
             name: 'status',
             lookup: {closing: 0, opening: 1, stopped: 2, blocked: 3},
             cluster: 'manuSpecificLumi',
-            attribute: {ID: 0x0421, type: 0x20},
+            attribute: 'curtainStatus',
             description: 'Current status of the curtain (Opening, Closing, Stopped, Blocked)',
             zigbeeCommandOptions: {manufacturerCode},
             access: 'STATE',
@@ -1620,7 +1645,7 @@ export const lumiModernExtend = {
             name: 'last_manual_operation',
             lookup: {open: 1, close: 2, stop: 3},
             cluster: 'manuSpecificLumi',
-            attribute: {ID: 0x0425, type: 0x20},
+            attribute: 'curtainLastManualOperation',
             description: 'Last triggered manual operation',
             zigbeeCommandOptions: {manufacturerCode},
             access: 'STATE',
@@ -1631,7 +1656,7 @@ export const lumiModernExtend = {
         modernExtend.numeric({
             name: 'curtain_position',
             cluster: 'manuSpecificLumi',
-            attribute: {ID: 0x041f, type: 0x20},
+            attribute: 'curtainPosition',
             description: 'Current position of the curtain',
             zigbeeCommandOptions: {manufacturerCode},
             access: 'STATE',
@@ -1645,7 +1670,7 @@ export const lumiModernExtend = {
         modernExtend.numeric({
             name: 'traverse_time',
             cluster: 'manuSpecificLumi',
-            attribute: {ID: 0x0403, type: 0x20},
+            attribute: 'curtainTraverseTime',
             description: 'Time in seconds to get from one end to another',
             zigbeeCommandOptions: {manufacturerCode},
             access: 'STATE',
@@ -1658,7 +1683,7 @@ export const lumiModernExtend = {
             name: 'calibration_status',
             lookup: {not_calibrated: 0, half_calibrated: 1, fully_calibrated: 2},
             cluster: 'manuSpecificLumi',
-            attribute: {ID: 0x0426, type: 0x20},
+            attribute: 'curtainCalibrationStatus',
             description: 'Calibration status of the curtain (Not calibrated, Half calibrated, Fully calibrated)',
             zigbeeCommandOptions: {manufacturerCode},
             access: 'STATE',
@@ -1683,7 +1708,7 @@ export const lumiModernExtend = {
             name: 'identify_beep',
             lookup: {short: 0, '1_sec': 1, '2_sec': 2},
             cluster: 'manuSpecificLumi',
-            attribute: {ID: 0x0404, type: 0x20},
+            attribute: 'curtainIdentifyBeep',
             description: 'Device will beep for chosen time duration',
             zigbeeCommandOptions: {manufacturerCode},
             access: 'ALL',
@@ -4877,7 +4902,7 @@ export const toZigbee = {
             }
 
             // Reset Calibration
-            await entity.write('manuSpecificLumi', {0x0407: {value: 0x00, type: 0x20}}, manufacturerOptions.lumi);
+            await entity.write('manuSpecificLumi', {curtainLimitsCalibration: 0}, manufacturerOptions.lumi);
             logger.info('Starting the calibration process...', NS);
 
             // Wait for 3 seconds
@@ -4891,12 +4916,12 @@ export const toZigbee = {
             const waitForStateTransition = async (initialStates: number[], desiredStates: number[]): Promise<void> => {
                 return new Promise<void>((resolve) => {
                     const checkState = async () => {
-                        const result = await entity.read('manuSpecificLumi', [0x0421]);
-                        const state = result ? result[0x0421] : null;
+                        const result = await entity.read('manuSpecificLumi', ['curtainStatus']);
+                        const state = result ? result['curtainStatus'] : null;
                         if (!initialStates.includes(state)) {
                             const checkDesiredState = async () => {
-                                const result = await entity.read('manuSpecificLumi', [0x0421]);
-                                const state = result ? result[0x0421] : null;
+                                const result = await entity.read('manuSpecificLumi', ['curtainStatus']);
+                                const state = result ? result['curtainStatus'] : null;
                                 if (desiredStates.includes(state)) {
                                     resolve();
                                 } else {
@@ -4918,7 +4943,7 @@ export const toZigbee = {
             await sleep(1000);
 
             // Set First Calibration Position
-            await entity.write('manuSpecificLumi', {0x0407: {value: 0x01, type: 0x20}}, manufacturerOptions.lumi);
+            await entity.write('manuSpecificLumi', {curtainLimitsCalibration: 1}, manufacturerOptions.lumi);
             logger.info('End position 1 has been set.', NS);
 
             // Wait for 3 seconds
@@ -4935,7 +4960,7 @@ export const toZigbee = {
             await sleep(1000);
 
             // Set Second Calibration Position
-            await entity.write('manuSpecificLumi', {0x0407: {value: 0x02, type: 0x20}}, manufacturerOptions.lumi);
+            await entity.write('manuSpecificLumi', {curtainLimitsCalibration: 2}, manufacturerOptions.lumi);
             logger.info('End position 2 has been set.', NS);
             logger.info('Calibration process completed.', NS);
         },
