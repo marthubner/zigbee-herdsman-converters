@@ -4,12 +4,12 @@ import * as constants from '../lib/constants';
 import * as exposes from '../lib/exposes';
 import {binary, enumLookup, light, numeric} from '../lib/modernExtend';
 import * as reporting from '../lib/reporting';
-import {Definition} from '../lib/types';
+import {DefinitionWithExtend} from '../lib/types';
 
 const ea = exposes.access;
 const e = exposes.presets;
 
-const definitions: Definition[] = [
+const definitions: DefinitionWithExtend[] = [
     {
         zigbeeModel: ['ElkoDimmerZHA'],
         model: '316GLEDRF',
@@ -64,8 +64,8 @@ const definitions: Definition[] = [
                 description: 'Device in regulator or thermostat mode.',
                 access: 'ALL',
                 reporting: {attribute: 'elkoRegulatorMode', min: 0, max: constants.repInterval.HOUR, change: null},
-                valueOn: ['regulator', 0],
-                valueOff: ['thermostat', 1],
+                valueOn: ['regulator', 1],
+                valueOff: ['thermostat', 0],
             }),
             numeric({
                 name: 'regulator_time',

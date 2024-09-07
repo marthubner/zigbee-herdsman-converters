@@ -199,8 +199,15 @@ export function setupConfigureForReading(cluster: string | number, attributes: (
     return configure;
 }
 
-export function autoDetectInputEndpoint(device: Zh.Device, cluster: string | number): Zh.Endpoint | Zh.Group {
-    return device.endpoints.find((e) => e.supportsInputCluster(cluster)) ?? device.endpoints[0];
+export function determineEndpoint(entity: Zh.Endpoint | Zh.Group, meta: Tz.Meta, cluster: string | number): Zh.Endpoint | Zh.Group {
+    const {device, endpoint_name} = meta;
+    if (endpoint_name !== undefined) {
+        // In case an explicit endpoint is given, always send it to that endpoint
+        return entity;
+    } else {
+        // In case no endpoint is given, match the first endpoint which support the cluster.
+        return device.endpoints.find((e) => e.supportsInputCluster(cluster)) ?? device.endpoints[0];
+    }
 }
 
 // #region General
@@ -362,7 +369,7 @@ export function battery(args?: BatteryArgs): ModernExtend {
             convertGet: async (entity, key, meta) => {
                 // Don't fail GET reqest if reading fails
                 // Split reading is needed for more clear debug logs
-                const ep = autoDetectInputEndpoint(meta.device, 'genPowerCfg');
+                const ep = determineEndpoint(entity, meta, 'genPowerCfg');
                 try {
                     await ep.read('genPowerCfg', ['batteryPercentageRemaining']);
                 } catch (e) {
@@ -727,7 +734,7 @@ export function occupancy(args?: OccupancyArgs): ModernExtend {
         {
             key: ['occupancy'],
             convertGet: async (entity, key, meta) => {
-                await autoDetectInputEndpoint(meta.device, 'msOccupancySensing').read('msOccupancySensing', ['occupancy']);
+                await determineEndpoint(entity, meta, 'msOccupancySensing').read('msOccupancySensing', ['occupancy']);
             },
         },
     ];
@@ -1248,6 +1255,7 @@ export interface WindowCoveringArgs {
     stateSource?: 'lift' | 'tilt';
     configureReporting?: boolean;
     coverMode?: boolean;
+    endpointNames?: string[];
 }
 export function windowCovering(args: WindowCoveringArgs): ModernExtend {
     args = {stateSource: 'lift', configureReporting: true, ...args};
@@ -1296,6 +1304,10 @@ export function windowCovering(args: WindowCoveringArgs): ModernExtend {
     if (args.coverMode) {
         result.toZigbee.push(tz.cover_mode);
         result.exposes.push(e.cover_mode());
+    }
+
+    if (args.endpointNames) {
+        result.exposes = flatten(exposes.map((expose) => args.endpointNames.map((endpoint) => expose.clone().withEndpoint(endpoint))));
     }
 
     return result;
@@ -1351,7 +1363,18 @@ export function commandsWindowCovering(args?: CommandsWindowCoveringArgs): Moder
 
 // #region Security and Safety
 
-export type iasZoneType = 'occupancy' | 'contact' | 'smoke' | 'water_leak' | 'carbon_monoxide' | 'sos' | 'vibration' | 'alarm' | 'gas' | 'generic';
+export type iasZoneType =
+    | 'occupancy'
+    | 'contact'
+    | 'smoke'
+    | 'water_leak'
+    | 'rain'
+    | 'carbon_monoxide'
+    | 'sos'
+    | 'vibration'
+    | 'alarm'
+    | 'gas'
+    | 'generic';
 export type iasZoneAttribute =
     | 'alarm_1'
     | 'alarm_2'
@@ -1361,6 +1384,7 @@ export type iasZoneAttribute =
     | 'restore_reports'
     | 'ac_status'
     | 'test'
+    | 'trouble'
     | 'battery_defect';
 export interface IasArgs {
     zoneType: iasZoneType;
@@ -1381,6 +1405,7 @@ export function iasZoneAlarm(args: IasArgs): ModernExtend {
         alarm_1: e.binary('alarm_1', ea.STATE, true, false).withDescription('Indicates whether IAS Zone alarm 1 is active'),
         alarm_2: e.binary('alarm_2', ea.STATE, true, false).withDescription('Indicates whether IAS Zone alarm 2 is active'),
         tamper: e.binary('tamper', ea.STATE, true, false).withDescription('Indicates whether the device is tampered').withCategory('diagnostic'),
+        rain: e.binary('rain', ea.STATE, true, false).withDescription('Indicates whether the device detected rainfall'),
         battery_low: e
             .binary('battery_low', ea.STATE, true, false)
             .withDescription('Indicates whether the battery of the device is almost empty')
@@ -1400,6 +1425,10 @@ export function iasZoneAlarm(args: IasArgs): ModernExtend {
         test: e
             .binary('test', ea.STATE, true, false)
             .withDescription('Indicates whether the device is currently performing a test')
+            .withCategory('diagnostic'),
+        trouble: e
+            .binary('trouble', ea.STATE, true, false)
+            .withDescription('Indicates whether the device is currently havin trouble')
             .withCategory('diagnostic'),
         battery_defect: e
             .binary('battery_defect', ea.STATE, true, false)
@@ -1461,18 +1490,31 @@ export function iasZoneAlarm(args: IasArgs): ModernExtend {
                         globalStore.putValue(msg.endpoint, 'timer', timer);
                     }
                 }
-
-                let payload = {
-                    tamper: (zoneStatus & (1 << 2)) > 0,
-                    battery_low: (zoneStatus & (1 << 3)) > 0,
-                    supervision_reports: (zoneStatus & (1 << 4)) > 0,
-                    restore_reports: (zoneStatus & (1 << 5)) > 0,
-                    trouble: (zoneStatus & (1 << 6)) > 0,
-                    ac_status: (zoneStatus & (1 << 7)) > 0,
-                    test: (zoneStatus & (1 << 8)) > 0,
-                    battery_defect: (zoneStatus & (1 << 9)) > 0,
-                };
-
+                let payload = {};
+                if (args.zoneAttributes.includes('tamper')) {
+                    payload = {tamper: (zoneStatus & (1 << 2)) > 0, ...payload};
+                }
+                if (args.zoneAttributes.includes('battery_low')) {
+                    payload = {battery_low: (zoneStatus & (1 << 3)) > 0, ...payload};
+                }
+                if (args.zoneAttributes.includes('supervision_reports')) {
+                    payload = {supervision_reports: (zoneStatus & (1 << 4)) > 0, ...payload};
+                }
+                if (args.zoneAttributes.includes('restore_reports')) {
+                    payload = {restore_reports: (zoneStatus & (1 << 5)) > 0, ...payload};
+                }
+                if (args.zoneAttributes.includes('trouble')) {
+                    payload = {trouble: (zoneStatus & (1 << 6)) > 0, ...payload};
+                }
+                if (args.zoneAttributes.includes('ac_status')) {
+                    payload = {ac_status: (zoneStatus & (1 << 7)) > 0, ...payload};
+                }
+                if (args.zoneAttributes.includes('test')) {
+                    payload = {test: (zoneStatus & (1 << 8)) > 0, ...payload};
+                }
+                if (args.zoneAttributes.includes('battery_defect')) {
+                    payload = {battery_defect: (zoneStatus & (1 << 9)) > 0, ...payload};
+                }
                 let alarm1Payload = (zoneStatus & 1) > 0;
                 let alarm2Payload = (zoneStatus & (1 << 1)) > 0;
 
@@ -1569,11 +1611,12 @@ export interface ElectricityMeterArgs {
     power?: false | MultiplierDivisor;
     voltage?: false | MultiplierDivisor;
     energy?: false | MultiplierDivisor;
+    threePhase?: boolean;
     configureReporting?: boolean;
     endpointNames?: string[];
 }
 export function electricityMeter(args?: ElectricityMeterArgs): ModernExtend {
-    args = {cluster: 'both', configureReporting: true, ...args};
+    args = {cluster: 'both', configureReporting: true, threePhase: false, ...args};
     if (
         args.cluster === 'metering' &&
         isObject(args.power) &&
@@ -1583,7 +1626,7 @@ export function electricityMeter(args?: ElectricityMeterArgs): ModernExtend {
         throw new Error(`When cluster is metering, power and energy divisor/multiplier should be equal`);
     }
 
-    let exposes: Numeric[];
+    let exposes: Numeric[] = [];
     let fromZigbee: Fz.Converter[];
     let toZigbee: Tz.Converter[];
 
@@ -1591,10 +1634,40 @@ export function electricityMeter(args?: ElectricityMeterArgs): ModernExtend {
         haElectricalMeasurement: {
             // Report change with every 5W change
             power: {attribute: 'activePower', divisor: 'acPowerDivisor', multiplier: 'acPowerMultiplier', forced: args.power, change: 5},
+            power_phase_b: {attribute: 'activePowerPhB', divisor: 'acPowerDivisor', multiplier: 'acPowerMultiplier', forced: args.power, change: 5},
+            power_phase_c: {attribute: 'activePowerPhC', divisor: 'acPowerDivisor', multiplier: 'acPowerMultiplier', forced: args.power, change: 5},
             // Report change with every 0.05A change
             current: {attribute: 'rmsCurrent', divisor: 'acCurrentDivisor', multiplier: 'acCurrentMultiplier', forced: args.current, change: 0.05},
+            current_phase_b: {
+                attribute: 'rmsCurrentPhB',
+                divisor: 'acCurrentDivisor',
+                multiplier: 'acCurrentMultiplier',
+                forced: args.current,
+                change: 0.05,
+            },
+            current_phase_c: {
+                attribute: 'rmsCurrentPhC',
+                divisor: 'acCurrentDivisor',
+                multiplier: 'acCurrentMultiplier',
+                forced: args.current,
+                change: 0.05,
+            },
             // Report change with every 5V change
             voltage: {attribute: 'rmsVoltage', divisor: 'acVoltageDivisor', multiplier: 'acVoltageMultiplier', forced: args.voltage, change: 5},
+            voltage_phase_b: {
+                attribute: 'rmsVoltagePhB',
+                divisor: 'acVoltageDivisor',
+                multiplier: 'acVoltageMultiplier',
+                forced: args.voltage,
+                change: 5,
+            },
+            voltage_phase_c: {
+                attribute: 'rmsVoltagePhC',
+                divisor: 'acVoltageDivisor',
+                multiplier: 'acVoltageMultiplier',
+                forced: args.voltage,
+                change: 5,
+            },
         },
         seMetering: {
             // Report change with every 5W change
@@ -1608,31 +1681,71 @@ export function electricityMeter(args?: ElectricityMeterArgs): ModernExtend {
     if (args.power === false) {
         delete configureLookup.haElectricalMeasurement.power;
         delete configureLookup.seMetering.power;
+        delete configureLookup.haElectricalMeasurement.power_phase_b;
+        delete configureLookup.haElectricalMeasurement.power_phase_c;
     }
-    if (args.voltage === false) delete configureLookup.haElectricalMeasurement.voltage;
-    if (args.current === false) delete configureLookup.haElectricalMeasurement.current;
-    if (args.energy === false) delete configureLookup.seMetering.energy;
+    if (args.voltage === false) {
+        delete configureLookup.haElectricalMeasurement.voltage;
+        delete configureLookup.haElectricalMeasurement.voltage_phase_b;
+        delete configureLookup.haElectricalMeasurement.voltage_phase_c;
+    }
+    if (args.current === false) {
+        delete configureLookup.haElectricalMeasurement.current;
+        delete configureLookup.haElectricalMeasurement.current_phase_b;
+        delete configureLookup.haElectricalMeasurement.current_phase_c;
+    }
+    if (args.energy === false) {
+        delete configureLookup.seMetering.energy;
+    }
+    if (args.threePhase === false) {
+        delete configureLookup.haElectricalMeasurement.power_phase_b;
+        delete configureLookup.haElectricalMeasurement.power_phase_c;
+        delete configureLookup.haElectricalMeasurement.current_phase_b;
+        delete configureLookup.haElectricalMeasurement.current_phase_c;
+        delete configureLookup.haElectricalMeasurement.voltage_phase_b;
+        delete configureLookup.haElectricalMeasurement.voltage_phase_c;
+    }
 
     if (args.cluster === 'both') {
-        exposes = [
-            e.power().withAccess(ea.STATE_GET),
-            e.voltage().withAccess(ea.STATE_GET),
-            e.current().withAccess(ea.STATE_GET),
-            e.energy().withAccess(ea.STATE_GET),
-        ];
+        if (args.power !== false) exposes.push(e.power().withAccess(ea.STATE_GET));
+        if (args.voltage !== false) exposes.push(e.voltage().withAccess(ea.STATE_GET));
+        if (args.current !== false) exposes.push(e.current().withAccess(ea.STATE_GET));
+        if (args.energy !== false) exposes.push(e.energy().withAccess(ea.STATE_GET));
         fromZigbee = [fz.electrical_measurement, fz.metering];
         toZigbee = [tz.electrical_measurement_power, tz.acvoltage, tz.accurrent, tz.currentsummdelivered];
         delete configureLookup.seMetering.power;
     } else if (args.cluster === 'metering') {
-        exposes = [e.power().withAccess(ea.STATE_GET), e.energy().withAccess(ea.STATE_GET)];
+        if (args.power !== false) exposes.push(e.power().withAccess(ea.STATE_GET));
+        if (args.energy !== false) exposes.push(e.energy().withAccess(ea.STATE_GET));
         fromZigbee = [fz.metering];
         toZigbee = [tz.metering_power, tz.currentsummdelivered];
         delete configureLookup.haElectricalMeasurement;
     } else if (args.cluster === 'electrical') {
-        exposes = [e.power().withAccess(ea.STATE_GET), e.voltage().withAccess(ea.STATE_GET), e.current().withAccess(ea.STATE_GET)];
+        if (args.power !== false) exposes.push(e.power().withAccess(ea.STATE_GET));
+        if (args.voltage !== false) exposes.push(e.voltage().withAccess(ea.STATE_GET));
+        if (args.current !== false) exposes.push(e.current().withAccess(ea.STATE_GET));
         fromZigbee = [fz.electrical_measurement];
         toZigbee = [tz.electrical_measurement_power, tz.acvoltage, tz.accurrent];
         delete configureLookup.seMetering;
+    }
+
+    if (args.threePhase === true) {
+        exposes.push(
+            e.power_phase_b().withAccess(ea.STATE_GET),
+            e.power_phase_c().withAccess(ea.STATE_GET),
+            e.voltage_phase_b().withAccess(ea.STATE_GET),
+            e.voltage_phase_c().withAccess(ea.STATE_GET),
+            e.current_phase_b().withAccess(ea.STATE_GET),
+            e.current_phase_c().withAccess(ea.STATE_GET),
+        );
+        toZigbee.push(
+            tz.electrical_measurement_power_phase_b,
+            tz.electrical_measurement_power_phase_c,
+            tz.acvoltage_phase_b,
+            tz.acvoltage_phase_c,
+            tz.accurrent_phase_b,
+            tz.accurrent_phase_c,
+        );
     }
 
     if (args.endpointNames) {
@@ -1782,14 +1895,14 @@ export function enumLookup(args: EnumLookupArgs): ModernExtend {
                           const payload = isString(attribute)
                               ? {[attribute]: payloadValue}
                               : {[attribute.ID]: {value: payloadValue, type: attribute.type}};
-                          await autoDetectInputEndpoint(meta.device, cluster).write(cluster, payload, zigbeeCommandOptions);
+                          await determineEndpoint(entity, meta, cluster).write(cluster, payload, zigbeeCommandOptions);
                           return {state: {[key]: value}};
                       }
                     : undefined,
             convertGet:
                 access & ea.GET
                     ? async (entity, key, meta) => {
-                          await autoDetectInputEndpoint(meta.device, cluster).read(cluster, [attributeKey], zigbeeCommandOptions);
+                          await determineEndpoint(entity, meta, cluster).read(cluster, [attributeKey], zigbeeCommandOptions);
                       }
                     : undefined,
         },
@@ -1913,14 +2026,14 @@ export function numeric(args: NumericArgs): ModernExtend {
                           const payload = isString(attribute)
                               ? {[attribute]: payloadValue}
                               : {[attribute.ID]: {value: payloadValue, type: attribute.type}};
-                          await autoDetectInputEndpoint(meta.device, cluster).write(cluster, payload, zigbeeCommandOptions);
+                          await determineEndpoint(entity, meta, cluster).write(cluster, payload, zigbeeCommandOptions);
                           return {state: {[key]: value}};
                       }
                     : undefined,
             convertGet:
                 access & ea.GET
                     ? async (entity, key, meta) => {
-                          await autoDetectInputEndpoint(meta.device, cluster).read(cluster, [attributeKey], zigbeeCommandOptions);
+                          await determineEndpoint(entity, meta, cluster).read(cluster, [attributeKey], zigbeeCommandOptions);
                       }
                     : undefined,
         },
@@ -1975,14 +2088,14 @@ export function binary(args: BinaryArgs): ModernExtend {
                           const payload = isString(attribute)
                               ? {[attribute]: payloadValue}
                               : {[attribute.ID]: {value: payloadValue, type: attribute.type}};
-                          await autoDetectInputEndpoint(meta.device, cluster).write(cluster, payload, zigbeeCommandOptions);
+                          await determineEndpoint(entity, meta, cluster).write(cluster, payload, zigbeeCommandOptions);
                           return {state: {[key]: value}};
                       }
                     : undefined,
             convertGet:
                 access & ea.GET
                     ? async (entity, key, meta) => {
-                          await autoDetectInputEndpoint(meta.device, cluster).read(cluster, [attributeKey], zigbeeCommandOptions);
+                          await determineEndpoint(entity, meta, cluster).read(cluster, [attributeKey], zigbeeCommandOptions);
                       }
                     : undefined,
         },

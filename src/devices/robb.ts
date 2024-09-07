@@ -1,13 +1,25 @@
 import fz from '../converters/fromZigbee';
 import tz from '../converters/toZigbee';
 import * as exposes from '../lib/exposes';
-import {deviceEndpoints, electricityMeter, light, onOff} from '../lib/modernExtend';
+import {
+    deviceEndpoints,
+    electricityMeter,
+    light,
+    onOff,
+    battery,
+    occupancy,
+    temperature,
+    illuminance,
+    humidity,
+    identify,
+    iasZoneAlarm,
+} from '../lib/modernExtend';
 import * as reporting from '../lib/reporting';
-import {Definition} from '../lib/types';
+import {DefinitionWithExtend} from '../lib/types';
 
 const e = exposes.presets;
 
-const definitions: Definition[] = [
+const definitions: DefinitionWithExtend[] = [
     {
         zigbeeModel: ['ROB_200-060-0'],
         model: 'ROB_200-060-0',
@@ -36,6 +48,22 @@ const definitions: Definition[] = [
             await reporting.currentPositionLiftPercentage(endpoint);
         },
         exposes: [e.cover_position()],
+    },
+    {
+        zigbeeModel: ['ROB_200-070-0'],
+        model: 'ROB_200-070-0',
+        vendor: 'ROBB',
+        description: 'Battery powered PIR presence, temperature, humidity and light sensors',
+        extend: [
+            deviceEndpoints({endpoints: {'1': 1, '2': 2, '3': 3, '4': 4, '5': 5}}),
+            battery(),
+            identify(),
+            occupancy(),
+            iasZoneAlarm({zoneType: 'generic', zoneAttributes: ['alarm_1', 'alarm_2', 'tamper', 'battery_low']}),
+            temperature({endpointNames: ['3']}),
+            humidity({endpointNames: ['4']}),
+            illuminance({endpointNames: ['5']}),
+        ],
     },
     {
         zigbeeModel: ['ROB_200-050-0'],
